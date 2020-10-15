@@ -10,17 +10,15 @@ import { ConfigOptions } from "./configfile.interface";
 @Injectable()
 export class ConfigFileService implements OnModuleInit, OnModuleDestroy {
     private readonly logger = new Logger(ConfigFileService.name);
-    private readonly watchers = new Array<FSWatcher>();
     private readonly listeners = new Map<string, Function[]>();
+    private watcher: FSWatcher = null;
     constructor(
         private readonly scannerService: ScannerService, //
         @Inject(CONFIGFILE_OPTION) private readonly options: ConfigOptions
-    ) {}
+    ) { }
 
     async onModuleInit() {
         this.logger.log(`Watch Config Root: ${this.options.config_root}`);
-        this.watchers.push(watch(".", { cwd: this.options.config_root }).on("add", this.onFileChange.bind(this)));
-        this.watchers.push(watch(".", { cwd: this.options.config_root }).on("change", this.onFileChange.bind(this)));
         await this.scannerService.scanProviderPropertyMetadates(CONFIGFILE_METADATA, async (instance, propertyKey, metadata) => {
             const fun = async (config: any) => {
                 try {
@@ -40,6 +38,13 @@ export class ConfigFileService implements OnModuleInit, OnModuleDestroy {
                 this.listeners.set(key, [fun]);
             }
         });
+
+        this.watcher = watch(".", { cwd: this.options.config_root });
+        this.watcher.on("add", this.onFileChange.bind(this));
+        this.watcher.on("change", this.onFileChange.bind(this));
+        await new Promise((resolve) => {
+            this.watcher.on("ready", resolve);
+        })
     }
 
     onFileChange(path: string) {
@@ -82,10 +87,10 @@ export class ConfigFileService implements OnModuleInit, OnModuleDestroy {
     }
 
     async onModuleDestroy() {
-        for (const watcher of this.watchers) {
-            await watcher.close();
+        if (this.watcher) {
+            await this.watcher.close();
+            this.watcher = null;
         }
-        this.watchers.length = 0;
         this.listeners.clear();
     }
 }
